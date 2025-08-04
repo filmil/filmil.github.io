@@ -168,6 +168,14 @@
                 document.getElementById('buttonDiv').style.display = 'none';
                 document.getElementById('accessSection').classList.remove('hidden');
 
+                // NEW: Automatically set the range and fetch data if a spreadsheet ID is present.
+                const spreadsheetIdInput = document.getElementById('spreadsheetId');
+                if (spreadsheetIdInput.value) {
+                    const rangeInput = document.getElementById('range');
+                    rangeInput.value = 'Sheet1!A1';
+                    fetchData();
+                }
+
             } catch (error) {
                 console.error('Error initializing gapi client or loading API:', error);
                 displayErrorMessage('Failed to initialize API. Please check your client ID and try again.');
