@@ -1,6 +1,6 @@
 <!--
   This is a self-contained client-side web application that allows a user to:
-  1. Authenticate with their Google account using the "Sign in with Google" button.
+  1. Authenticate with their Google account using a custom button.
   2. Enter a Google Spreadsheet ID and a sheet range (e.g., Sheet1!A1:B10).
   3. Fetch the data from the specified spreadsheet and display it on the page.
 
@@ -41,8 +41,10 @@
         <div class="space-y-4 text-center p-6 border-b border-gray-200">
             <h2 class="text-2xl font-semibold text-gray-700">Sign in to Get Started</h2>
             <p class="text-gray-500">Authenticate with your Google account to access your spreadsheets.</p>
-            <!-- The 'Sign in with Google' button will be rendered here by the GSI library -->
-            <div id="buttonDiv" class="flex justify-center"></div>
+            <!-- A simple button to trigger the authentication flow -->
+            <button id="signInButton" class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
+                Sign In with Google
+            </button>
         </div>
 
         <!-- Spreadsheet Access Section (Initially hidden) -->
@@ -91,8 +93,7 @@
         let accessToken;
         let signedIn = false;
 
-        // Initialize the Google Identity Services client.
-        // This function is called by the GSI script's `onload` handler.
+        // Initialize the Google Identity Services client on page load.
         window.onload = function() {
             // Initialize the token client for a new authentication flow
             tokenClient = google.accounts.oauth2.initTokenClient({
@@ -106,9 +107,6 @@
                         signedIn = true;
                         // Now that we have the access token, we can initialize the gapi client.
                         initGapiClient();
-                        // Hide the sign-in button and show the access section.
-                        document.getElementById('buttonDiv').style.display = 'none';
-                        document.getElementById('accessSection').classList.remove('hidden');
                     } else {
                         console.error('Failed to get access token:', tokenResponse);
                         displayErrorMessage('Failed to sign in. Please try again.');
@@ -116,28 +114,13 @@
                 }
             });
 
-            // Initialize the Google Sign-In button.
-            google.accounts.id.initialize({
-                client_id: CLIENT_ID,
-                callback: handleCredentialResponse,
-                auto_select: false, // Prevents automatic sign-in
-            });
-
-            google.accounts.id.renderButton(
-                document.getElementById('buttonDiv'),
-                { theme: "outline", size: "large", text: "signin_with", shape: "pill" } // Custom button styling
-            );
-
+            // Set up the click handler for our custom sign-in button.
+            document.getElementById('signInButton').onclick = () => {
+                // This call opens the Google sign-in pop-up.
+                tokenClient.requestAccessToken();
+            };
         };
-
-        // This callback handles the ID token, which is not what we need for API calls.
-        // The main flow uses tokenClient.requestAccessToken().
-        function handleCredentialResponse(response) {
-            console.log("ID Token received, but we need an access token for Sheets API.");
-            console.log("Response:", response);
-            // We'll use the gapi client initialization to get the access token.
-        }
-
+        
         // Loads the Google API client library and initializes it.
         function gapiLoad() {
             gapi.load('client', initGapiClient);
@@ -164,8 +147,8 @@
                 await gapi.client.load('https://sheets.googleapis.com/$discovery/rest?version=v4');
                 console.log('Gapi client initialized and Sheets API loaded.');
 
-                // The authentication is complete, so we can show the main UI.
-                document.getElementById('buttonDiv').style.display = 'none';
+                // The authentication is complete, so we can hide the sign-in section and show the main UI.
+                document.getElementById('signInButton').classList.add('hidden');
                 document.getElementById('accessSection').classList.remove('hidden');
 
                 // NEW: Automatically set the range and fetch data if a spreadsheet ID is present.
