@@ -1,0 +1,289 @@
+<!--
+  This is a self-contained client-side web application that allows a user to:
+  1. Authenticate with their Google account using the "Sign in with Google" button.
+  2. Enter a Google Spreadsheet ID and a sheet range (e.g., Sheet1!A1:B10).
+  3. Fetch the data from the specified spreadsheet and display it on the page.
+
+  Instructions for use:
+  1. Replace 'YOUR_GOOGLE_CLIENT_ID' with your own Google OAuth 2.0 client ID.
+  2. Ensure the Google Sheets API is enabled in your Google Cloud project.
+  3. The app uses the Google Identity Services (GSI) and the Google API Client Library (gapi)
+     for a secure and modern authentication and API access flow.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheets Client</title>
+    <!-- Tailwind CSS for a clean and responsive design -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="container bg-white p-8 rounded-2xl shadow-xl space-y-6 border border-gray-200">
+        <h1 class="text-3xl font-bold text-gray-800 text-center">Google Sheets Data Fetcher</h1>
+
+        <!-- Authentication Section -->
+        <div class="space-y-4 text-center p-6 border-b border-gray-200">
+            <h2 class="text-2xl font-semibold text-gray-700">Sign in to Get Started</h2>
+            <p class="text-gray-500">Authenticate with your Google account to access your spreadsheets.</p>
+            <!-- The 'Sign in with Google' button will be rendered here by the GSI library -->
+            <div id="buttonDiv" class="flex justify-center"></div>
+        </div>
+
+        <!-- Spreadsheet Access Section (Initially hidden) -->
+        <div id="accessSection" class="hidden space-y-4 p-6 border-t border-gray-200">
+            <h2 class="text-2xl font-semibold text-gray-700 text-center">Fetch Spreadsheet Data</h2>
+
+            <div class="space-y-2">
+                <label for="spreadsheetId" class="block text-sm font-medium text-gray-700">Spreadsheet ID</label>
+                <input type="text" id="spreadsheetId" placeholder="Enter Spreadsheet ID here" class="block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+            </div>
+
+            <div class="space-y-2">
+                <label for="range" class="block text-sm font-medium text-gray-700">Sheet and Range</label>
+                <input type="text" id="range" value="Sheet1!A1:D10" placeholder="e.g., Sheet1!A1:C10" class="block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+            </div>
+
+            <div class="flex justify-center">
+                <button onclick="fetchData()" class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
+                    Fetch Data
+                </button>
+            </div>
+        </div>
+
+        <!-- Data Display Section -->
+        <div id="resultContainer" class="p-6">
+            <div id="statusMessage" class="text-center text-gray-500 hidden">Fetching data...</div>
+            <div id="errorMessage" class="text-center text-red-500 hidden"></div>
+            <div id="dataOutput" class="mt-4 overflow-x-auto"></div>
+        </div>
+
+    </div>
+
+    <!-- Google Identity Services (GSI) script for authentication -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- Google API Client Library (gapi) for making API calls -->
+    <script src="https://apis.google.com/js/api.js"></script>
+
+    <script>
+        // Use a placeholder for the client ID and instruct the user to replace it.
+        const CLIENT_ID = '109527362522-c6hkgpgo2tc0ofkpg616lr6fcn2gin69.apps.googleusercontent.com';
+        // The scope needed to read all user spreadsheets. 'spreadsheets' for read/write.
+        const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
+
+        // Variable to hold the user's access token.
+        let tokenClient;
+        let accessToken;
+        let signedIn = false;
+
+        // Initialize the Google Identity Services client.
+        // This function is called by the GSI script's `onload` handler.
+        window.onload = function() {
+            // Initialize the token client for a new authentication flow
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPE,
+                callback: (tokenResponse) => {
+                    // This callback function is executed after the user grants consent.
+                    console.log('Token response:', tokenResponse);
+                    if (tokenResponse.access_token) {
+                        accessToken = tokenResponse.access_token;
+                        signedIn = true;
+                        // Now that we have the access token, we can initialize the gapi client.
+                        initGapiClient();
+                        // Hide the sign-in button and show the access section.
+                        document.getElementById('buttonDiv').style.display = 'none';
+                        document.getElementById('accessSection').classList.remove('hidden');
+                    } else {
+                        console.error('Failed to get access token:', tokenResponse);
+                        displayErrorMessage('Failed to sign in. Please try again.');
+                    }
+                }
+            });
+
+            // Initialize the Google Sign-In button.
+            google.accounts.id.initialize({
+                client_id: CLIENT_ID,
+                callback: handleCredentialResponse,
+                auto_select: false, // Prevents automatic sign-in
+            });
+
+            google.accounts.id.renderButton(
+                document.getElementById('buttonDiv'),
+                { theme: "outline", size: "large", text: "signin_with", shape: "pill" } // Custom button styling
+            );
+
+        };
+
+        // This callback handles the ID token, which is not what we need for API calls.
+        // The main flow uses tokenClient.requestAccessToken().
+        function handleCredentialResponse(response) {
+            console.log("ID Token received, but we need an access token for Sheets API.");
+            console.log("Response:", response);
+            // We'll use the gapi client initialization to get the access token.
+        }
+
+        // Loads the Google API client library and initializes it.
+        function gapiLoad() {
+            gapi.load('client', initGapiClient);
+        }
+
+        // Initializes the Gapi client with the Sheets API.
+        async function initGapiClient() {
+            // If we don't have an access token yet, ask the user to sign in first.
+            if (!accessToken) {
+                console.log('Access token not available. Requesting one.');
+                tokenClient.requestAccessToken();
+                return;
+            }
+
+            try {
+                // Initialize the gapi client with the Sheets API and our access token.
+                await gapi.client.init({
+                    // No API key needed with an access token
+                    // discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
+                    accessToken: accessToken,
+                });
+                
+                // Load the Sheets API.
+                await gapi.client.load('https://sheets.googleapis.com/$discovery/rest?version=v4');
+                console.log('Gapi client initialized and Sheets API loaded.');
+
+                // The authentication is complete, so we can show the main UI.
+                document.getElementById('buttonDiv').style.display = 'none';
+                document.getElementById('accessSection').classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error initializing gapi client or loading API:', error);
+                displayErrorMessage('Failed to initialize API. Please check your client ID and try again.');
+            }
+        }
+
+
+        /**
+         * Fetches data from the specified Google Sheet.
+         */
+        async function fetchData() {
+            // Clear previous messages and results
+            clearMessages();
+
+            // Get the spreadsheet ID and range from the input fields
+            const spreadsheetId = document.getElementById('spreadsheetId').value;
+            const range = document.getElementById('range').value;
+
+            // Simple validation
+            if (!spreadsheetId || !range) {
+                displayErrorMessage('Please enter both a Spreadsheet ID and a range.');
+                return;
+            }
+
+            // Show a loading message
+            document.getElementById('statusMessage').classList.remove('hidden');
+
+            try {
+                // Check if the user is signed in and we have an access token
+                if (!signedIn || !accessToken) {
+                    displayErrorMessage('You are not signed in. Please sign in first.');
+                    return;
+                }
+
+                // If the gapi client isn't ready, we might need to re-initialize or request a new token.
+                if (!gapi.client || !gapi.client.sheets) {
+                    await initGapiClient();
+                    if (!gapi.client || !gapi.client.sheets) {
+                         displayErrorMessage('API not ready. Please try signing in again.');
+                         return;
+                    }
+                }
+
+                // Make the API request to get the spreadsheet values
+                const response = await gapi.client.sheets.spreadsheets.values.get({
+                    spreadsheetId: spreadsheetId,
+                    range: range
+                });
+
+                const values = response.result.values;
+
+                if (!values || values.length === 0) {
+                    displayErrorMessage('No data found in the specified range.');
+                    return;
+                }
+
+                // Display the data as an HTML table
+                displayDataAsTable(values);
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                // The error object might contain more detailed info
+                const errorDetail = error.result && error.result.error ? error.result.error.message : error;
+                displayErrorMessage(`Error fetching data: ${errorDetail}`);
+            } finally {
+                document.getElementById('statusMessage').classList.add('hidden');
+            }
+        }
+
+        /**
+         * Displays the fetched data in an HTML table.
+         * @param {Array<Array<string>>} data The spreadsheet data to display.
+         */
+        function displayDataAsTable(data) {
+            const outputDiv = document.getElementById('dataOutput');
+            const table = document.createElement('table');
+            table.className = "min-w-full divide-y divide-gray-200 border border-gray-300 rounded-lg overflow-hidden";
+            let tableHTML = `
+                <thead class="bg-gray-50">
+                    <tr>
+                        ${data[0].map(header => `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${header}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    ${data.slice(1).map(row => `
+                        <tr>
+                            ${row.map(cell => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">${cell}</td>`).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            `;
+            table.innerHTML = tableHTML;
+            outputDiv.innerHTML = '';
+            outputDiv.appendChild(table);
+        }
+
+        /**
+         * Clears all status and error messages from the UI.
+         */
+        function clearMessages() {
+            document.getElementById('statusMessage').classList.add('hidden');
+            document.getElementById('errorMessage').classList.add('hidden');
+            document.getElementById('dataOutput').innerHTML = '';
+        }
+
+        /**
+         * Displays an error message to the user.
+         * @param {string} message The error message to display.
+         */
+        function displayErrorMessage(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+    </script>
+
+</body>
+</html>
+
